@@ -17,13 +17,12 @@ func toSqlInsert(input chan *FileJob) string {
 		projectName = strings.Join(DirFilePaths, ",")
 	}
 
-	var sumCode, sumComplexity int64
+	var sumCode int64
 	str.WriteString("\nbegin transaction;")
 	count := 0
 	for res := range input {
 		count++
 		sumCode += res.Code
-		sumComplexity += res.Complexity
 
 		dir, _ := filepath.Split(res.Location)
 
@@ -65,23 +64,6 @@ func toSqlInsert(input chan *FileJob) string {
 		people,
 	)
 	str.WriteString("\ncommit;")
-
-	if Locomo {
-		result := LocomoEstimate(sumCode, sumComplexity)
-		str.WriteString("\nbegin transaction;")
-		_, _ = fmt.Fprintf(str, "\ninsert into locomo_metadata values('%s', '%s', %f, %f, %f, %f, %f, '%s', %f);",
-			currentTime.Format("2006-01-02 15:04:05"),
-			escapeSQLString(projectName),
-			result.Cost,
-			result.InputTokens,
-			result.OutputTokens,
-			result.GenerationSeconds,
-			result.ReviewHours,
-			escapeSQLString(result.Preset),
-			result.IterationFactor,
-		)
-		str.WriteString("\ncommit;")
-	}
 
 	return str.String()
 }
@@ -135,22 +117,6 @@ create table t        (
 	}
 	str.WriteString(`
 );`)
-
-	// toSqlInsert writes into locomo_metadata when --locomo is set, so the table has to
-	// be created here too or the generated script fails with "no such table".
-	if Locomo {
-		str.WriteString(`
-create table locomo_metadata (
-             timestamp text,
-             Project   text,
-             estimated_llm_cost real,
-             estimated_llm_input_tokens real,
-             estimated_llm_output_tokens real,
-             estimated_llm_generation_seconds real,
-             estimated_llm_review_hours real,
-             estimated_llm_preset text,
-             estimated_llm_cycles real);`)
-	}
 
 	str.WriteString(toSqlInsert(input))
 	return str.String()

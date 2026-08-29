@@ -102,36 +102,6 @@ func esstimateCostScheduleMonths(sumCode int64) (float64, float64, float64) {
 	return r.EstimatedCost, r.ScheduleMonths, r.PeopleRequired
 }
 
-// computeLocomo runs the LOCOMO estimate against the current processor-level
-// LOCOMO flags. Thin alias for LocomoEstimate so the report-side caller in
-// CollectReportData lines up with computeCocomo.
-func computeLocomo(sumCode, sumComplexity int64) LocomoResult {
-	return LocomoEstimate(sumCode, sumComplexity)
-}
-
-func calculateLocomo(sumCode, sumComplexity int64, str *strings.Builder) {
-	result := computeLocomo(sumCode, sumComplexity)
-
-	p := gmessage.NewPrinter(glanguage.Make(os.Getenv("LANG")))
-
-	_, _ = p.Fprintf(str, "LOCOMO LLM Cost Estimate (%s)\n", result.Preset)
-	_, _ = p.Fprintf(str, "  Tokens Required (in/out) %.1fM / %.1fM\n", result.InputTokens/1_000_000, result.OutputTokens/1_000_000)
-	_, _ = p.Fprintf(str, "  Cost to Generate %s%.0f\n", CurrencySymbol, result.Cost)
-	_, _ = p.Fprintf(str, "  Estimated Cycles %.1f\n", result.IterationFactor)
-
-	if result.GenerationSeconds > 86400 {
-		_, _ = p.Fprintf(str, "  Generation Time (serial) %.1f days\n", result.GenerationSeconds/86400)
-	} else if result.GenerationSeconds > 3600 {
-		_, _ = p.Fprintf(str, "  Generation Time (serial) %.1f hours\n", result.GenerationSeconds/3600)
-	} else {
-		_, _ = p.Fprintf(str, "  Generation Time (serial) %.1f minutes\n", result.GenerationSeconds/60)
-	}
-
-	_, _ = p.Fprintf(str, "  Human Review Time %.1f hours\n", result.ReviewHours)
-	str.WriteString("  Disclaimer: rough ballpark for regenerating code using a LLM.\n")
-	str.WriteString("  Does not account for context reuse, test generation, or heavy debugging.\n")
-}
-
 func calculateSize(sumBytes int64, str *strings.Builder) {
 
 	p := gmessage.NewPrinter(glanguage.Make(os.Getenv("LANG")))

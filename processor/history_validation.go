@@ -14,11 +14,11 @@ import (
 // abort the run; recoverable conditions are written to warnDst as a single
 // line each and execution continues.
 func validateHistoryFlags(warnDst io.Writer) error {
-	if !Hotspots && !ByAuthor && !Timeline {
+	if !Hotspots && !Coupling && !ByAuthor && !Timeline && !Locomo {
 		return nil
 	}
 
-	if HistoryDepth < 0 {
+	if (Hotspots || Coupling || ByAuthor || Timeline) && HistoryDepth < 0 {
 		return errors.New("--depth must be >= 0 (0 means entire history)")
 	}
 
@@ -70,8 +70,6 @@ func collectIgnoredHistoryFlags() []string {
 	add(IgnoreMinified, "--no-min")
 	add(IgnoreGenerated, "--no-gen")
 	add(Cocomo, "--no-cocomo")
-	add(Locomo, "--locomo")
-	add(CostComparison, "--cost-comparison")
 	add(SLOCCountFormat, "--sloccount-format")
 	add(NoLarge, "--no-large")
 

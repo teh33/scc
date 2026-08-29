@@ -314,7 +314,6 @@ Flags:
       --cocomo-project-type string          change COCOMO model type [organic, semi-detached, embedded, "custom,1,1,1,1"] (default "organic")
       --cognitive                           calculate cognitive (nesting-weighted) complexity
       --config string                       load this file as the global config source; overrides SCC_CONFIG_PATH, honored even with --no-config
-      --cost-comparison                     show both COCOMO and LOCOMO estimates side by side
       --count-as string                     count extension as language [e.g. jsp:htm,chead:"C Header" maps extension jsp to html and chead to C Header]
       --count-as-pattern stringArray        count files matching a path pattern as a new named category backed by a base language [repeatable; pattern is glob by default, prefix with re: for regex; e.g. *_spec.rb:"Ruby Spec":Ruby or re:\.test\.js$:"JavaScript Tests":JavaScript]
       --count-ignore                        set to allow .gitignore and .ignore files to be counted
@@ -348,14 +347,11 @@ Flags:
   -l, --languages                           print supported languages and extensions
       --large-byte-count int                number of bytes a file can contain before being removed from output (default 1000000)
       --large-line-count int                number of lines a file can contain before being removed from output (default 40000)
-      --locomo                              enable LOCOMO (LLM Output COst MOdel) cost estimation
-      --locomo-config string                LOCOMO power-user config "tokensPerLine,inputPerLine,complexityWeight,iterations,iterationWeight"
-      --locomo-cycles float                 override estimated LLM iteration cycles (default: calculated from complexity)
-      --locomo-input-price float            LOCOMO cost per 1M input tokens in dollars (overrides preset)
-      --locomo-output-price float           LOCOMO cost per 1M output tokens in dollars (overrides preset)
-      --locomo-preset string                LOCOMO model preset [large, medium, small, local] (default "medium")
-      --locomo-review float                 human review minutes per line of code for LOCOMO estimate (default 0.01)
-      --locomo-tps float                    LOCOMO output tokens per second (overrides preset)
+      --locomo                              render a benchmark-based LOCOMO estimate from reachable Git commits
+      --locomo-agent string                 override the Artificial Analysis agent used by --locomo
+      --locomo-cost-per-task float          override the Artificial Analysis cost per task in USD (requires agent and model overrides)
+      --locomo-model string                 override the Artificial Analysis model used by --locomo
+      --locomo-overhead float               project overhead multiplier for the LOCOMO estimate (minimum 1) (default 5)
       --mcp                                 start as an MCP (Model Context Protocol) server over stdio
       --min                                 identify minified files
   -z, --min-gen                             identify minified or generated files
@@ -382,7 +378,7 @@ Flags:
       --remap-all string                    inspect every file and remap by checking for a string and remapping the language [e.g. "-*- C++ -*-":"C Header"]
       --remap-unknown string                inspect files of unknown type and remap by checking for a string and remapping the language [e.g. "-*- C++ -*-":"C Header"]
       --report string[="scc-report.html"]   write a self-contained HTML report; bare flag writes scc-report.html and prompts before overwriting, --report=path/out.html overwrites silently
-      --report-skip string                  comma-separated sections to omit (cocomo,locomo,hotspots,coupling,authors,timeline,files,uloc,linelength,card)
+      --report-skip string                  comma-separated sections to omit (cocomo,hotspots,coupling,authors,timeline,files,uloc,linelength,card)
       --report-title string                 override the repo name shown in the report banner
       --size-unit string                    set size unit [si, binary, mixed, xkcd-kb, xkcd-kelly, xkcd-imaginary, xkcd-intel, xkcd-drive, xkcd-bakers] (default "si")
       --sloccount-format                    print a more SLOCCount like COCOMO calculation
@@ -713,133 +709,150 @@ and also the developers need to be sufficiently experienced and creative to deve
 
 ### LOCOMO
 
-LOCOMO (LLM Output COst MOdel) estimates the cost to regenerate a codebase using a large language model. It is the LLM-era counterpart to COCOMO - a rough ballpark estimator, not a project planning tool.
+LOCOMO (LLM Output COst MOdel) estimates the cost to recreate a codebase using a large language model. It is the LLM-era counterpart to COCOMO - a rough ballpark estimator, not a project planning tool.
 
-Note: LOCOMO was developed as part of `scc` and is not an industry-standard model. Unlike COCOMO, which is based on decades of empirical research by Barry Boehm, LOCOMO is an experimental heuristic designed to give a useful order-of-magnitude estimate for LLM-assisted development costs. Treat its output as a conversation starter, not a definitive answer.
+Note: LOCOMO was developed as part of `scc` and is not an industry-standard model. Unlike COCOMO, which is based on decades of empirical research by Barry Boehm, LOCOMO uses current coding-agent benchmark pricing to give a useful order-of-magnitude estimate for LLM-assisted development costs. Treat its output as a conversation starter, not a definitive answer.
 
-**Important distinction:** LOCOMO estimates the cost to **regenerate** known code - essentially "given this exact codebase, how much would it cost to have an LLM produce it?" This is fundamentally different from the cost to **create** something from scratch, which involves exploration, architectural decisions, dead ends, debugging, and iteration that can cost orders of magnitude more. COCOMO estimates the human *creation* cost; LOCOMO estimates the LLM *regeneration* cost. They answer different questions.
+**Important distinction:** LOCOMO estimates the cost to **recreate** the changes recorded in a repository - essentially "given this Git history, what would those changes cost at a benchmark price per task?" This is fundamentally different from the cost to **create** something from scratch, which involves product discovery, requirements recovery, architectural decisions, dead ends, debugging, and iteration that the model cannot see. COCOMO estimates the human *creation* cost; LOCOMO estimates a benchmark-priced *recreation* cost. They answer different questions.
 
-LOCOMO is opt-in. Enable it with `--locomo` or use `--cost-comparison` to display both COCOMO and LOCOMO side by side.
+LOCOMO is opt-in. Enable it with `--locomo`; it runs as a standalone Git-history report and supports tabular or JSON output.
 
-```
+```text
 $ scc --locomo .
-...
-LOCOMO LLM Cost Estimate (medium)
-  Tokens Required (in/out) 3.0M / 0.7M
-  Cost to Generate $20
-  Estimated Cycles 2.1
-  Generation Time (serial) 3.9 hours
-  Human Review Time 5.9 hours
-  Disclaimer: rough ballpark for regenerating code using a LLM.
-  Does not account for context reuse, test generation, or heavy debugging.
+LOCOMO benchmark estimate (Git history)
+
+Commits                          1,672
+Benchmark cost per task          $1.21
+Benchmark API subtotal           $2,023.12
+Project overhead                 5x
+Estimated LOCOMO cost            $10,115.60
+
+Benchmark: Artificial Analysis Coding Agent Index v1.3 · Codex + GPT-5.6 Luna (xhigh)
+Source: https://artificialanalysis.ai/agents/coding-agents
+Assumptions: Each unique commit reachable from HEAD, including merge commits, is priced as one benchmark task. Commit size is not weighted.
+Caution: Benchmark transfer is uncertain; this excludes product discovery and requirements recovery.
 ```
 
 #### How it works
 
-LOCOMO uses SLOC and complexity data that `scc` already computes. The model works per-file and aggregates:
+LOCOMO uses the Git history that `scc` can reach from `HEAD`. The model walks the commit graph and aggregates:
 
-1. **Output tokens** - each line of code maps to ~10 LLM output tokens (configurable).
-2. **Input tokens** - estimated prompting cost, scaled by code complexity. More complex code (higher branch density) requires more detailed prompts. Scales to prevent runaway estimates.
-3. **Iteration factor** - LLMs rarely produce correct code on the first try. A retry multiplier scales with complexity, also scales.
-4. **Dollar cost** - input and output tokens multiplied by per-token pricing.
-5. **Generation time** - total serial output tokens divided by tokens-per-second throughput.
-6. **Human review time** - estimated per-line overhead for planning, review, testing, and integration.
+1. **Reachable commits** - each unique commit reachable from `HEAD` maps to one benchmark task.
+2. **Merge commits** - merge commits count as tasks, while commits reached through more than one parent are counted only once.
+3. **Benchmark price** - every task uses the selected Artificial Analysis cost per task.
+4. **API subtotal** - reachable commits multiplied by the benchmark cost per task.
+5. **Project overhead** - a multiplier for the work around the benchmark task, such as review, testing, integration, and coordination.
+6. **Estimated cost** - the benchmark API subtotal multiplied by project overhead.
 
-#### Model presets
+In short, the calculation is:
 
-Presets are tier-based rather than tied to specific models, so they don't go stale as models are retired or renamed. Use `--locomo-preset` to select a tier:
-
-| Preset | Represents | Input $/1M | Output $/1M | TPS |
-|--------|-----------|-----------|-------------|-----|
-| `large` | Frontier models (Opus, GPT-5.3, Gemini 3.1 Pro, etc.) | 10.00 | 30.00 | 30 |
-| `medium` (default) | Balanced models (Sonnet, Gemini Flash, etc.) | 3.00 | 15.00 | 50 |
-| `small` | Fast/cheap models (Haiku, GPT-4o-mini, etc.) | 0.50 | 2.00 | 100 |
-| `local` | Self-hosted models (Llama, Mistral, Qwen etc.) | 0.00 | 0.00 | 15 |
-
-For `local`, cost is $0 but generation time is still reported to capture the compute/time investment. Preset pricing reflects approximate tier rates as of early 2026 and can be overridden with explicit flags.
-
-```
-scc --locomo --locomo-preset large .
-scc --locomo --locomo-preset local .
+```text
+reachable commits × benchmark cost per task × project overhead
 ```
 
-#### Overriding preset values
+Commit size and complexity do not change the estimate. `--depth` is also ignored because LOCOMO uses every commit reachable in the local repository.
 
-You can override individual preset values for pricing or throughput:
+#### Benchmark profile
 
+The default profile records the benchmark source, version, coding agent, model, and cost per task used by the estimate:
+
+| Source | Version | Agent | Model | Cost per task |
+|--------|---------|-------|-------|---------------|
+| Artificial Analysis Coding Agent Index | v1.3 | Codex | GPT-5.6 Luna (xhigh) | $1.21 |
+
+The profile reflects the leader selected from Artificial Analysis's [Cost per Task index](https://artificialanalysis.ai/agents/coding-agents). Benchmark results and prices change over time, so the version is included in both tabular and JSON output rather than silently treating the built-in values as timeless.
+
+```text
+scc --locomo .
+scc --locomo --format json .
 ```
-scc --locomo --locomo-input-price 1.0 --locomo-output-price 5.0 .
-scc --locomo --locomo-tps 100 .
+
+#### Overriding benchmark values
+
+You can use another indexed agent and model by overriding its name and cost per task:
+
+```text
+scc --locomo \
+    --locomo-agent "Claude Code" \
+    --locomo-model "Sonnet 4.6" \
+    --locomo-cost-per-task 0.42 .
 ```
 
-#### Human review time
+Set all three flags together. The agent and model must be non-empty, and the cost must be a positive US dollar amount with at most two decimal places. Supplying only part of a profile is rejected so the report never labels one agent or model with another profile's price.
 
-The `--locomo-review` flag controls estimated human review minutes per line of code (default: 0.01, i.e. 0.6 seconds per line). This is intentionally optimistic and assumes light oversight.
+#### Project overhead
 
-For mission-critical, security-sensitive, or complex algorithmic code you should increase this:
+The `--locomo-overhead` flag controls the multiplier applied to the benchmark API subtotal (default: `5`, i.e. five times the direct benchmark task cost). This represents work that a benchmark price alone does not capture.
 
+For a repository that needs less or more review, testing, integration, or coordination you can change this:
+
+```text
+scc --locomo --locomo-overhead 2 .
+scc --locomo --locomo-overhead 10 .
 ```
-scc --locomo --locomo-review 0.05 .
-scc --locomo --locomo-review 0.1 .
-```
+
+The multiplier must be a finite number greater than or equal to `1`. A value below `1` would imply that the complete recreation costs less than the benchmark API tasks themselves, so it is rejected.
 
 #### Power-user configuration
 
-The five internal model parameters can be overridden with a single comma-separated config string:
+The benchmark profile and project overhead can be overridden with explicit, named flags:
 
+```text
+scc --locomo \
+    --locomo-agent "Claude Code" \
+    --locomo-model "Sonnet 4.6" \
+    --locomo-cost-per-task 0.42 \
+    --locomo-overhead 7.5 .
 ```
-scc --locomo --locomo-config "tokensPerLine,inputPerLine,complexityWeight,iterations,iterationWeight"
-```
 
-The defaults are `"10,20,5,1.5,2"`. Here is what each parameter controls:
+The defaults and validation rules are:
 
-| Position | Name | Default | Description |
-|----------|------|---------|-------------|
-| 1 | tokensPerLine | 10 | Average LLM output tokens per line of code |
-| 2 | inputPerLine | 20 | Base LLM input (prompt) tokens per output line |
-| 3 | complexityWeight | 5 | How much complexity density scales input tokens: `inputFactor = 1 + sqrt(density) * weight` |
-| 4 | iterations | 1.5 | Base iteration/retry cycles before complexity adjustment |
-| 5 | iterationWeight | 2 | How much complexity density adds extra cycles: `cycles = iterations + sqrt(density) * weight` |
+| Setting | Flag | Default | Description |
+|---------|------|---------|-------------|
+| Agent | `--locomo-agent` | Codex | Artificial Analysis coding agent used for each task |
+| Model | `--locomo-model` | GPT-5.6 Luna (xhigh) | Model configuration used by the coding agent |
+| Cost per task | `--locomo-cost-per-task` | $1.21 | Positive USD benchmark price with at most two decimal places |
+| Project overhead | `--locomo-overhead` | 5 | Finite multiplier greater than or equal to 1 |
+| Output format | `--format` | tabular | LOCOMO supports `tabular`, `wide`, and `json` |
 
-The iteration factor (cycles) scales both input and output tokens - it represents how many generation attempts the LLM needs. Simple code (~0.05 complexity density) produces ~1.9 cycles; complex code (~0.3 density) produces ~2.6 cycles. Use `--locomo-cycles` to override this with a fixed value.
+The agent, model, and cost flags form one profile and must be supplied together. `wide` currently renders the same LOCOMO report as `tabular`; other formats are rejected rather than being given an incomplete or misleading schema.
 
-For example, to model a cheaper/faster LLM that needs fewer tokens but more retries:
+For example, to model the same benchmark profile with more project overhead:
 
-```
-scc --locomo --locomo-config "8,15,3,2.0,1.5"
+```text
+scc --locomo --locomo-overhead 8 .
 ```
 
 #### Comparing COCOMO and LOCOMO
 
-Use `--cost-comparison` to show both estimates side by side. This enables COCOMO (if it was disabled) and LOCOMO together:
+Run COCOMO and LOCOMO separately when you want to compare them. A normal `scc` run reports COCOMO from the current working tree, while `--locomo` reports the benchmark-priced Git-history estimate:
 
+```text
+scc .
+scc --locomo .
 ```
-scc --cost-comparison .
-```
+
+Keeping the reports separate makes the distinction explicit: COCOMO uses source lines to estimate human development effort, while LOCOMO uses reachable commits to estimate benchmark-priced recreation cost.
 
 #### What LOCOMO does not account for
 
 LOCOMO is a rough estimator with known limitations:
 
-- **No context reuse.** Real LLM-assisted development shares context across files. The per-file model overestimates input tokens for large projects with shared patterns.
-- **Boilerplate vs algorithmic code.** A 500-line CRUD controller and a 500-line compression algorithm have very different real costs, but the model only differentiates them via complexity density.
-- **Code that LLMs can't write well.** Complex concurrency, platform-specific edge cases, and security-critical crypto need human authoring, not just review.
-- **No test generation cost.** The model estimates source code generation only, not test suites.
-- **Pricing changes.** LLM pricing drops rapidly. Preset defaults will become stale - use explicit price flags for current estimates.
+- **No commit weighting.** A one-line fix and a large feature commit each count as one benchmark task.
+- **Local history only.** Shallow clones can only include the history present locally, so their estimates are lower than a complete clone of the same repository.
+- **Benchmark transfer.** A benchmark task may not represent the size, language, constraints, or difficulty of a real repository commit.
+- **No product discovery.** The model does not estimate requirements recovery, architecture decisions, dead ends, or other work that is absent from Git history.
+- **Pricing changes.** Coding-agent benchmarks and prices change rapidly. Use explicit profile flags when the built-in benchmark version is no longer the comparison you want.
 
 #### All LOCOMO flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--locomo` | false | Enable LOCOMO output |
-| `--cost-comparison` | false | Show COCOMO + LOCOMO side by side |
-| `--locomo-preset` | medium | Model tier preset for pricing and throughput |
-| `--locomo-input-price` | (preset) | Override: cost per 1M input tokens ($) |
-| `--locomo-output-price` | (preset) | Override: cost per 1M output tokens ($) |
-| `--locomo-tps` | (preset) | Override: output tokens per second |
-| `--locomo-review` | 0.01 | Human review minutes per line of code |
-| `--locomo-cycles` | (calculated) | Override estimated LLM iteration cycles |
-| `--locomo-config` | 10,20,5,1.5,2 | Power-user config: tokensPerLine, inputPerLine, complexityWeight, iterations, iterationWeight |
+| `--locomo` | false | Render the standalone benchmark-based LOCOMO report |
+| `--locomo-agent` | Codex | Override the Artificial Analysis agent; requires model and cost overrides |
+| `--locomo-model` | GPT-5.6 Luna (xhigh) | Override the Artificial Analysis model; requires agent and cost overrides |
+| `--locomo-cost-per-task` | $1.21 | Override the benchmark cost per task in USD; requires agent and model overrides |
+| `--locomo-overhead` | 5 | Project overhead multiplier; must be at least 1 |
 
 ### Git Insight Reports
 
@@ -1005,7 +1018,7 @@ Totals reconcile with a plain `scc` against the current HEAD tree. CSV/JSON incl
 
 ### HTML Report
 
-`scc --report` writes a self-contained, infographic-style HTML page summarising the codebase: overview metrics, language breakdown, line-length histogram, hotspots, change coupling, author rollup, language and author timelines, COCOMO / LOCOMO cost estimates, and a per-file table. The page bundles its own CSS and inline SVG — no external network requests, no JavaScript runtime dependencies — so it can be opened locally, committed to a repo, attached to a release, or hosted as a static artifact.
+`scc --report` writes a self-contained, infographic-style HTML page summarising the codebase: overview metrics, language breakdown, line-length histogram, hotspots, change coupling, author rollup, language and author timelines, a COCOMO cost estimate, and a per-file table. The page bundles its own CSS and inline SVG — no external network requests, no JavaScript runtime dependencies — so it can be opened locally, committed to a repo, attached to a release, or hosted as a static artifact.
 
 ```text
 $ scc --report                       # writes scc-report.html (prompts before overwriting)
@@ -1018,7 +1031,7 @@ A bare `--report` is non-destructive: if `scc-report.html` already exists in the
 |---|---|
 | `--report[=path]` | Write the HTML report. Bare flag writes `scc-report.html`; explicit path overwrites silently. |
 | `--report-title NAME` | Override the repo name shown in the report banner. Defaults to the `origin` remote name or the directory basename. |
-| `--report-skip LIST` | Comma-separated sections to omit: `cocomo`, `locomo`, `hotspots`, `authors`, `timeline`, `files`, `uloc`, `linelength`, `card`. |
+| `--report-skip LIST` | Comma-separated sections to omit: `cocomo`, `hotspots`, `authors`, `timeline`, `files`, `uloc`, `linelength`, `card`. |
 
 The git-history sections (hotspots, coupling, authors, timelines) only render when the directory is a git repository; outside a repo they're omitted gracefully. The report embeds an OpenGraph share card as a `data:` URL so links unfurl on most social platforms — pass `--report-skip card` to drop it.
 
@@ -1653,10 +1666,8 @@ The MCP server exposes three tools:
 | `exclude_ext` | string | no | Comma-separated file extensions to exclude (e.g. `json,xml`). |
 | `no_duplicates` | boolean | no | Remove duplicate files from stats. |
 | `no_min_gen` | boolean | no | Ignore minified or generated files. |
-| `locomo` | boolean | no | Include LOCOMO (LLM cost) estimation in results. |
-| `locomo_preset` | string | no | LOCOMO model preset: `large`, `medium`, `small`, `local`. Default: `medium`. |
 
-Results are returned as JSON with per-language breakdown (files, lines, code, comments, blanks, complexity, bytes), totals, and COCOMO cost/schedule estimates. When `locomo` is enabled, LOCOMO estimates (token counts, cost, generation time, review hours) are also included.
+Results are returned as JSON with per-language breakdown (files, lines, code, comments, blanks, complexity, bytes), totals, and COCOMO cost/schedule estimates.
 
 **`hotspots`** - Rank the files in a git repository by hotspot score (complexity × change-frequency over recent history), surfacing the files most likely to need refactoring or close review.
 

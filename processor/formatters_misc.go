@@ -382,15 +382,6 @@ func toHtmlTable(input chan *FileJob) string {
 	</tr>`, strings.ReplaceAll(sb.String(), "\n", "<br>"))
 		hasCostOutput = true
 	}
-	if Locomo {
-		var sb strings.Builder
-		calculateLocomo(sumCode, sumComplexity, &sb)
-		_, _ = fmt.Fprintf(str, `
-	<tr>
-		<th colspan="9">%s</th>
-	</tr>`, strings.ReplaceAll(sb.String(), "\n", "<br>"))
-		hasCostOutput = true
-	}
 	if hasCostOutput {
 		str.WriteString(`</tfoot>
 	</table>`)

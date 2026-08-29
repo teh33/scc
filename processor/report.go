@@ -48,7 +48,6 @@ var ReportTitle = ""
 // and CollectReportData branch on. Spec 05 fixes this set.
 var reportSkipRecognised = map[string]bool{
 	"cocomo":     true,
-	"locomo":     true,
 	"hotspots":   true,
 	"coupling":   true,
 	"authors":    true,
@@ -260,7 +259,6 @@ type ReportData struct {
 
 	// Cost
 	Cocomo *CocomoResult
-	Locomo *LocomoResult
 
 	// Rendered share-card SVG (data: URL safe). Populated by RenderReport
 	// before the main template runs so it can be embedded as og:image.
@@ -402,10 +400,6 @@ func CollectReportData(path string) (ReportData, error) {
 	if !Cocomo && !ReportSkipped("cocomo") {
 		c := computeCocomo(totals.Code)
 		data.Cocomo = &c
-	}
-	if !ReportSkipped("locomo") {
-		l := computeLocomo(totals.Code, totals.Complexity)
-		data.Locomo = &l
 	}
 
 	data.Duration = time.Since(start)

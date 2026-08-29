@@ -170,15 +170,6 @@ func main() {
 			processor.ConfigureGc()
 			processor.ConfigureLazy(true)
 
-			// Detect if LOCOMO price/tps flags were explicitly set. Their default
-			// is 0, which is ambiguous (unset vs. an explicit 0), so the processor
-			// needs the "was it set?" bit to decide between the preset value and the
-			// user override. Only pflag's Changed() knows this, hence here not there.
-			processor.LocomoInputPriceSet = cmd.PersistentFlags().Changed("locomo-input-price")
-			processor.LocomoOutputPriceSet = cmd.PersistentFlags().Changed("locomo-output-price")
-			processor.LocomoTPSSet = cmd.PersistentFlags().Changed("locomo-tps")
-			processor.LocomoCyclesSet = cmd.PersistentFlags().Changed("locomo-cycles")
-
 			if v, err := cmd.PersistentFlags().GetBool("no-fold-authors"); err == nil && v {
 				processor.FoldAuthors = false
 			}

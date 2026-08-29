@@ -43,7 +43,7 @@ Returns per-language summary with:
 - cognitive: nesting-weighted cognitive complexity (only when cognitive=true; 0 otherwise)
 - bytes: total size in bytes
 
-Also returns COCOMO cost/schedule estimates and optionally LOCOMO (LLM cost) estimates.
+Also returns COCOMO cost/schedule estimates.
 
 Use by_file with sort=complexity to find the most complex files in a project.`),
 		mcp.WithString("path",
@@ -72,12 +72,6 @@ Use by_file with sort=complexity to find the most complex files in a project.`),
 		),
 		mcp.WithBoolean("cognitive",
 			mcp.Description("Compute nesting-weighted cognitive complexity in addition to cyclomatic complexity. Adds a 'cognitive' field to per-language, per-file and totals results. Off by default; when off the field is 0."),
-		),
-		mcp.WithBoolean("locomo",
-			mcp.Description("Include LOCOMO (LLM Output COst MOdel) cost estimation in results."),
-		),
-		mcp.WithString("locomo_preset",
-			mcp.Description("LOCOMO model preset: large (GPT-4/Opus class), medium (Sonnet class), small (Haiku class), local (local LLM). Default: medium."),
 		),
 	)
 
@@ -157,7 +151,6 @@ type mcpAnalyzeResponse struct {
 	Languages  []mcpLanguageResult `json:"languages"`
 	Totals     mcpTotals           `json:"totals"`
 	COCOMO     *mcpCOCOMO          `json:"cocomo,omitempty"`
-	LOCOMO     *mcpLOCOMO          `json:"locomo,omitempty"`
 	FileCount  int64               `json:"totalFiles"`
 	TotalLines int64               `json:"totalLines"`
 	TotalCode  int64               `json:"totalCode"`
@@ -204,17 +197,6 @@ type mcpCOCOMO struct {
 	EstimatedCost           float64 `json:"estimatedCost"`
 	EstimatedScheduleMonths float64 `json:"estimatedScheduleMonths"`
 	EstimatedPeople         float64 `json:"estimatedPeople"`
-}
-
-type mcpLOCOMO struct {
-	Cost                  float64 `json:"cost"`
-	InputTokens           float64 `json:"inputTokens"`
-	OutputTokens          float64 `json:"outputTokens"`
-	GenerationSeconds     float64 `json:"generationSeconds"`
-	ReviewHours           float64 `json:"reviewHours"`
-	Preset                string  `json:"preset"`
-	AverageComplexityMult float64 `json:"averageComplexityMultiplier"`
-	Cycles                float64 `json:"cycles"`
 }
 
 func mcpAnalyzeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -307,18 +289,6 @@ func mcpAnalyzeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 		processor.Cognitive = false
 	}
 
-	if locomo, ok := args["locomo"].(bool); ok && locomo {
-		processor.Locomo = true
-	} else {
-		processor.Locomo = false
-	}
-
-	if locomoPreset, ok := args["locomo_preset"].(string); ok && locomoPreset != "" {
-		processor.LocomoPresetName = locomoPreset
-	} else {
-		processor.LocomoPresetName = "medium"
-	}
-
 	processor.ConfigureLazy(true)
 
 	// Run the analysis
@@ -403,21 +373,6 @@ func mcpAnalyzeHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 		EstimatedCost:           estimatedCost,
 		EstimatedScheduleMonths: estimatedScheduleMonths,
 		EstimatedPeople:         estimatedPeople,
-	}
-
-	// LOCOMO estimate if requested
-	if processor.Locomo {
-		result := processor.LocomoEstimate(totals.Code, totals.Complexity)
-		resp.LOCOMO = &mcpLOCOMO{
-			Cost:                  result.Cost,
-			InputTokens:           result.InputTokens,
-			OutputTokens:          result.OutputTokens,
-			GenerationSeconds:     result.GenerationSeconds,
-			ReviewHours:           result.ReviewHours,
-			Preset:                result.Preset,
-			AverageComplexityMult: result.AverageComplexityMult,
-			Cycles:                result.IterationFactor,
-		}
 	}
 
 	// Serialize to JSON

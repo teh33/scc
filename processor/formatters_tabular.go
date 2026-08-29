@@ -240,9 +240,6 @@ func fileSummarizeLong(input chan *FileJob) string {
 			calculateCocomo(sumCode, str)
 		}
 	}
-	if Locomo {
-		calculateLocomo(sumCode, sumComplexity, str)
-	}
 	if !Size {
 		calculateSize(sumBytes, str)
 		str.WriteString(getTabularWideBreak())
@@ -467,10 +464,6 @@ func fileSummarizeShort(input chan *FileJob) string {
 		} else {
 			calculateCocomo(sumCode, str)
 		}
-		str.WriteString(getTabularShortBreak())
-	}
-	if Locomo {
-		calculateLocomo(sumCode, sumComplexity, str)
 		str.WriteString(getTabularShortBreak())
 	}
 	if !Size {

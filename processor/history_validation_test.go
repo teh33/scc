@@ -35,7 +35,6 @@ func resetHistoryFlagState(t *testing.T) {
 		IgnoreGenerated        bool
 		Cocomo                 bool
 		Locomo                 bool
-		CostComparison         bool
 		SLOCCountFormat        bool
 		NoLarge                bool
 		SortBy                 string
@@ -46,7 +45,7 @@ func resetHistoryFlagState(t *testing.T) {
 		Files, UlocMode, Dryness, MaxMean, Duplicates,
 		MinifiedGenerated, Minified, Generated,
 		IgnoreMinifiedGenerate, IgnoreMinified, IgnoreGenerated,
-		Cocomo, Locomo, CostComparison, SLOCCountFormat, NoLarge,
+		Cocomo, Locomo, SLOCCountFormat, NoLarge,
 		SortBy,
 	}
 
@@ -56,7 +55,7 @@ func resetHistoryFlagState(t *testing.T) {
 	Files, UlocMode, Dryness, MaxMean, Duplicates = false, false, false, false, false
 	MinifiedGenerated, Minified, Generated = false, false, false
 	IgnoreMinifiedGenerate, IgnoreMinified, IgnoreGenerated = false, false, false
-	Cocomo, Locomo, CostComparison, SLOCCountFormat, NoLarge = false, false, false, false, false
+	Cocomo, Locomo, SLOCCountFormat, NoLarge = false, false, false, false
 	SortBy = "files"
 
 	t.Cleanup(func() {
@@ -66,7 +65,7 @@ func resetHistoryFlagState(t *testing.T) {
 		Files, UlocMode, Dryness, MaxMean, Duplicates = saved.Files, saved.UlocMode, saved.Dryness, saved.MaxMean, saved.Duplicates
 		MinifiedGenerated, Minified, Generated = saved.MinifiedGenerated, saved.Minified, saved.Generated
 		IgnoreMinifiedGenerate, IgnoreMinified, IgnoreGenerated = saved.IgnoreMinifiedGenerate, saved.IgnoreMinified, saved.IgnoreGenerated
-		Cocomo, Locomo, CostComparison, SLOCCountFormat, NoLarge = saved.Cocomo, saved.Locomo, saved.CostComparison, saved.SLOCCountFormat, saved.NoLarge
+		Cocomo, Locomo, SLOCCountFormat, NoLarge = saved.Cocomo, saved.Locomo, saved.SLOCCountFormat, saved.NoLarge
 		SortBy = saved.SortBy
 	})
 }
@@ -222,5 +221,20 @@ func TestValidateCleanInputProducesNoWarnings(t *testing.T) {
 
 	if buf.Len() != 0 {
 		t.Errorf("expected no warnings for clean input, got: %q", buf.String())
+	}
+}
+
+func TestValidateLocomoIgnoresDepthButWarnsForCounterFlags(t *testing.T) {
+	resetHistoryFlagState(t)
+	Locomo = true
+	HistoryDepth = -1
+	Files = true
+
+	var buf bytes.Buffer
+	if err := validateHistoryFlags(&buf); err != nil {
+		t.Fatalf("--depth does not apply to --locomo; got error: %s", err)
+	}
+	if !strings.Contains(buf.String(), "--by-file") {
+		t.Fatalf("expected ignored counter flag warning, got %q", buf.String())
 	}
 }

@@ -3,270 +3,293 @@
 package processor
 
 import (
+	"encoding/json"
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-func TestLocomoComplexityDensityZeroCode(t *testing.T) {
-	got := LocomoComplexityDensity(10, 0)
-	if got != 0 {
-		t.Errorf("Expected 0 for zero code lines, got %f", got)
+func TestResolveLocomoProfile(t *testing.T) {
+	profile, err := resolveLocomoProfile("", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Agent != "Codex" || profile.Model != "GPT-5.6 Luna (xhigh)" || profile.CostPerTaskCents != 121 {
+		t.Fatalf("default profile = %#v", profile)
+	}
+
+	profile, err = resolveLocomoProfile("Claude Code", "Sonnet 4.6", 0.42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Agent != "Claude Code" || profile.Model != "Sonnet 4.6" || profile.CostPerTaskCents != 42 {
+		t.Fatalf("custom profile = %#v", profile)
 	}
 }
 
-func TestLocomoComplexityDensity(t *testing.T) {
-	got := LocomoComplexityDensity(30, 100)
-	if math.Abs(got-0.3) > 0.001 {
-		t.Errorf("Expected 0.3, got %f", got)
+func TestResolveLocomoProfileRejectsPartialOrInvalidOverrides(t *testing.T) {
+	for _, tc := range []struct {
+		name, agent, model string
+		cost               float64
+	}{
+		{name: "cost only", cost: 1},
+		{name: "agent only", agent: "Codex"},
+		{name: "missing model", agent: "Codex", cost: 1},
+		{name: "missing agent", model: "GPT", cost: 1},
+		{name: "missing cost", agent: "Codex", model: "GPT"},
+		{name: "negative cost", agent: "Codex", model: "GPT", cost: -1},
+		{name: "fractional cent", agent: "Codex", model: "GPT", cost: 1.001},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := resolveLocomoProfile(tc.agent, tc.model, tc.cost); err == nil {
+				t.Fatal("expected error")
+			}
+		})
 	}
 }
 
-func TestLocomoComplexityFactor(t *testing.T) {
-	// density 0.3, weight 5 → 1 + sqrt(0.3)*5 ≈ 1 + 0.5477*5 ≈ 3.738
-	got := LocomoComplexityFactor(0.3, 5)
-	if got < 3.7 || got > 3.8 {
-		t.Errorf("Expected ~3.74, got %f", got)
+func TestPriceLocomoUsesExactCommitCents(t *testing.T) {
+	estimate, err := priceLocomo(1603, 5, artificialAnalysisLocomoProfile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate.Commits != 1603 || estimate.APICostCents != 193963 {
+		t.Fatalf("estimate = %#v", estimate)
+	}
+	if math.Abs(estimate.EstimatedCostUSD-9698.15) > 1e-9 {
+		t.Fatalf("LOCOMO estimate = %v, want 9698.15", estimate.EstimatedCostUSD)
 	}
 }
 
-func TestLocomoComplexityFactorLowDensity(t *testing.T) {
-	// density 0.05, weight 5 → 1 + sqrt(0.05)*5 ≈ 1 + 0.2236*5 ≈ 2.118
-	got := LocomoComplexityFactor(0.05, 5)
-	if got < 2.0 || got > 2.2 {
-		t.Errorf("Expected ~2.12, got %f", got)
+func TestEstimateLocomoCountsLinearHistory(t *testing.T) {
+	dir := makeFixtureRepo(t, []map[string]string{
+		{"a.go": "package a\n"},
+		{"a.go": "package a\nfunc A() {}\n"},
+		{"a.go": "package a\nfunc A() {}\nfunc B() {}\n"},
+	})
+	estimate, err := estimateLocomo(dir, 5, artificialAnalysisLocomoProfile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate.Commits != 3 {
+		t.Fatalf("commits = %d, want 3", estimate.Commits)
 	}
 }
 
-func TestLocomoIterationFactor(t *testing.T) {
-	// density 0.3, base 1.5, weight 2 → 1.5 + sqrt(0.3)*2 ≈ 1.5 + 1.095 ≈ 2.595
-	got := LocomoIterationFactor(0.3, 1.5, 2)
-	if got < 2.5 || got > 2.7 {
-		t.Errorf("Expected ~2.60, got %f", got)
+func TestEstimateLocomoCountsMergeDAGOnce(t *testing.T) {
+	dir := makeFixtureRepo(t, []map[string]string{{"a.go": "package a\n"}})
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := repo.Head()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := repo.CommitObject(base.Hash())
+	if err != nil {
+		t.Fatal(err)
+	}
+	when := time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC)
+	left := commitWithParents(t, repo, tree.TreeHash, "left", when, base.Hash())
+	right := commitWithParents(t, repo, tree.TreeHash, "right", when.Add(time.Hour), base.Hash())
+	merge := commitWithParents(t, repo, tree.TreeHash, "merge", when.Add(2*time.Hour), left, right)
+
+	got, err := countReachableCommits(repo, merge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 4 {
+		t.Fatalf("commits = %d, want 4", got)
 	}
 }
 
-func TestLocomoIterationFactorLowDensity(t *testing.T) {
-	// density 0.05, base 1.5, weight 2 → 1.5 + sqrt(0.05)*2 ≈ 1.5 + 0.447 ≈ 1.947
-	got := LocomoIterationFactor(0.05, 1.5, 2)
-	if got < 1.9 || got > 2.0 {
-		t.Errorf("Expected ~1.95, got %f", got)
+func commitWithParents(t *testing.T, repo *git.Repository, tree plumbing.Hash, message string, when time.Time, parents ...plumbing.Hash) plumbing.Hash {
+	t.Helper()
+	commit := &object.Commit{
+		Author:       object.Signature{Name: "Test", Email: "test@example.com", When: when},
+		Committer:    object.Signature{Name: "Test", Email: "test@example.com", When: when},
+		Message:      message,
+		TreeHash:     tree,
+		ParentHashes: parents,
+	}
+	obj := repo.Storer.NewEncodedObject()
+	if err := commit.Encode(obj); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := repo.Storer.SetEncodedObject(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
+}
+
+func TestEstimateLocomoHandlesEmptyRepository(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := git.PlainInit(dir, false); err != nil {
+		t.Fatal(err)
+	}
+	estimate, err := estimateLocomo(dir, 5, artificialAnalysisLocomoProfile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate.Commits != 0 || estimate.APICostCents != 0 || estimate.EstimatedCostUSD != 0 {
+		t.Fatalf("estimate = %#v", estimate)
 	}
 }
 
-func TestLocomoEstimateBasic(t *testing.T) {
-	// Reset to defaults
-	LocomoPresetName = "medium"
-	LocomoTokensPerLine = 10
-	LocomoBaseInputPerLine = 20
-	LocomoComplexityWeight = 5
-	LocomoIterations = 1.5
-	LocomoIterationWeight = 2
-	LocomoReviewMinutesPerLine = 0.01
-	LocomoConfig = ""
-	LocomoInputPriceSet = false
-	LocomoOutputPriceSet = false
-	LocomoTPSSet = false
-	LocomoCyclesSet = false
-
-	result := LocomoEstimate(1000, 100)
-
-	// density = 0.1, complexityFactor ≈ 2.58, iterationFactor ≈ 2.13
-	// outputTokens = 1000 * 10 * 2.13 = 21322
-	// inputTokens = 1000 * 20 * 2.58 * 2.13 = 109929
-	// cost = (109929/1M * 3) + (21322/1M * 15) ≈ 0.33 + 0.32 ≈ 0.65
-
-	if result.OutputTokens <= 0 {
-		t.Error("Expected positive output tokens")
+func TestEstimateLocomoStopsAtShallowBoundary(t *testing.T) {
+	dir := makeFixtureRepo(t, []map[string]string{
+		{"a.go": "package a\n"},
+		{"a.go": "package a\nfunc A() {}\n"},
+		{"a.go": "package a\nfunc A() {}\nfunc B() {}\n"},
+	})
+	repo, err := git.PlainOpen(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if result.InputTokens <= 0 {
-		t.Error("Expected positive input tokens")
+	head, err := repo.Head()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if result.Cost <= 0 {
-		t.Error("Expected positive cost")
+	commit, err := repo.CommitObject(head.Hash())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if result.GenerationSeconds <= 0 {
-		t.Error("Expected positive generation time")
+	boundary := commit.ParentHashes[0]
+	if err := repo.Storer.SetShallow([]plumbing.Hash{boundary}); err != nil {
+		t.Fatal(err)
 	}
-	if result.ReviewHours <= 0 {
-		t.Error("Expected positive review hours")
+	got, err := countReachableCommits(repo, head.Hash())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if result.AverageComplexityMult <= 1 {
-		t.Error("Expected complexity multiplier > 1")
-	}
-	if result.Preset != "medium" {
-		t.Errorf("Expected preset medium, got %s", result.Preset)
+	if got != 2 {
+		t.Fatalf("commits = %d, want 2", got)
 	}
 }
 
-func TestLocomoEstimateZeroCode(t *testing.T) {
-	LocomoPresetName = "medium"
-	LocomoConfig = ""
-	LocomoInputPriceSet = false
-	LocomoOutputPriceSet = false
-	LocomoTPSSet = false
-	LocomoTokensPerLine = 10
-	LocomoBaseInputPerLine = 20
-	LocomoComplexityWeight = 5
-	LocomoIterations = 1.5
-	LocomoIterationWeight = 2
-	LocomoReviewMinutesPerLine = 0.01
-
-	result := LocomoEstimate(0, 0)
-
-	if result.OutputTokens != 0 {
-		t.Errorf("Expected 0 output tokens for zero code, got %f", result.OutputTokens)
+func TestEstimateLocomoSupportsLinkedWorktrees(t *testing.T) {
+	repoDir := makeFixtureRepo(t, []map[string]string{
+		{"a.go": "package a\n"},
+		{"a.go": "package a\nfunc A() {}\n"},
+	})
+	linked := t.TempDir()
+	admin := filepath.Join(repoDir, ".git", "worktrees", "linked")
+	if err := os.MkdirAll(admin, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if result.Cost != 0 {
-		t.Errorf("Expected 0 cost for zero code, got %f", result.Cost)
+	head, err := os.ReadFile(filepath.Join(repoDir, ".git", "HEAD"))
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestLocomoEstimateHighComplexity(t *testing.T) {
-	LocomoPresetName = "medium"
-	LocomoConfig = ""
-	LocomoInputPriceSet = false
-	LocomoOutputPriceSet = false
-	LocomoTPSSet = false
-	LocomoTokensPerLine = 10
-	LocomoBaseInputPerLine = 20
-	LocomoComplexityWeight = 5
-	LocomoIterations = 1.5
-	LocomoIterationWeight = 2
-	LocomoReviewMinutesPerLine = 0.01
-
-	low := LocomoEstimate(1000, 50)   // density 0.05
-	high := LocomoEstimate(1000, 300) // density 0.3
-
-	if high.Cost <= low.Cost {
-		t.Error("Higher complexity should produce higher cost")
+	files := map[string]string{
+		filepath.Join(linked, ".git"):     "gitdir: " + admin + "\n",
+		filepath.Join(admin, "commondir"): "../..\n",
+		filepath.Join(admin, "gitdir"):    filepath.Join(linked, ".git") + "\n",
+		filepath.Join(admin, "HEAD"):      string(head),
+	}
+	for name, content := range files {
+		if err := os.WriteFile(name, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	// The ratio should be in a reasonable range (not 12x like v1 linear would produce)
-	ratio := high.Cost / low.Cost
-	if ratio > 5 {
-		t.Errorf("Cost ratio between high and low complexity seems too high: %f", ratio)
+	estimate, err := estimateLocomo(linked, 5, artificialAnalysisLocomoProfile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate.Commits != 2 {
+		t.Fatalf("worktree commits = %d, want 2", estimate.Commits)
 	}
 }
 
-func TestLocomoEstimateLocalLlama(t *testing.T) {
-	LocomoPresetName = "local"
-	LocomoConfig = ""
-	LocomoInputPriceSet = false
-	LocomoOutputPriceSet = false
-	LocomoTPSSet = false
-	LocomoTokensPerLine = 10
-	LocomoBaseInputPerLine = 20
-	LocomoComplexityWeight = 5
-	LocomoIterations = 1.5
-	LocomoIterationWeight = 2
-	LocomoReviewMinutesPerLine = 0.01
-
-	result := LocomoEstimate(1000, 100)
-
-	if result.Cost != 0 {
-		t.Errorf("Expected 0 cost for local, got %f", result.Cost)
+func TestEstimateLocomoFindsRepositoryFromNestedPath(t *testing.T) {
+	dir := makeFixtureRepo(t, []map[string]string{{"nested/a.go": "package a\n"}})
+	estimate, err := estimateLocomo(filepath.Join(dir, "nested"), 5, artificialAnalysisLocomoProfile())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if result.GenerationSeconds <= 0 {
-		t.Error("Expected positive generation time even for local model")
+	if estimate.Commits != 1 {
+		t.Fatalf("commits = %d, want 1", estimate.Commits)
 	}
 }
 
-func TestGetLocomoPresetUnknown(t *testing.T) {
-	p := GetLocomoPreset("nonexistent")
-	if p.Name != "medium" {
-		t.Errorf("Expected fallback to medium, got %s", p.Name)
+func TestRenderLocomoTabular(t *testing.T) {
+	estimate, err := priceLocomo(1603, 1.234, artificialAnalysisLocomoProfile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := renderLocomoTabular(estimate)
+	for _, want := range []string{
+		"LOCOMO benchmark estimate (Git history)",
+		"Commits                          1,603",
+		"Benchmark cost per task          $1.21",
+		"Benchmark API subtotal           $1,939.63",
+		"Project overhead                 1.234x",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
 	}
 }
 
-func TestParseLocomoConfig(t *testing.T) {
-	var a, b, c, d, e float64
-	parseLocomoConfig("8,15,3,2.0,1.5", &a, &b, &c, &d, &e)
-
-	if a != 8 || b != 15 || c != 3 || d != 2.0 || e != 1.5 {
-		t.Errorf("Config parsing failed: got %f,%f,%f,%f,%f", a, b, c, d, e)
+func TestRenderLocomoJSONContract(t *testing.T) {
+	estimate, err := priceLocomo(10, 5, artificialAnalysisLocomoProfile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := renderLocomoJSON(estimate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc["report"] != "locomo" || doc["commits"] != float64(10) || doc["apiCostUSD"] != 12.1 || doc["estimatedCostUSD"] != 60.5 {
+		t.Fatalf("document = %#v", doc)
+	}
+	benchmark := doc["benchmark"].(map[string]any)
+	if benchmark["costPerTaskUSD"] != 1.21 {
+		t.Fatalf("benchmark = %#v", benchmark)
+	}
+	if _, ok := benchmark["codingAgentIndex"]; ok {
+		t.Error("unused codingAgentIndex should be absent")
 	}
 }
 
-func TestParseLocomoConfigInvalid(t *testing.T) {
-	a, b, c, d, e := 10.0, 20.0, 5.0, 1.5, 2.0
-	parseLocomoConfig("bad,config", &a, &b, &c, &d, &e)
-
-	// Should remain unchanged
-	if a != 10 || b != 20 || c != 5 || d != 1.5 || e != 2 {
-		t.Error("Invalid config should not change defaults")
+func TestPriceLocomoRejectsInvalidInputs(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		commits  int
+		overhead float64
+	}{
+		{name: "negative commits", commits: -1, overhead: 5},
+		{name: "small overhead", commits: 1, overhead: 0.5},
+		{name: "NaN overhead", commits: 1, overhead: math.NaN()},
+		{name: "overflow", commits: 2, overhead: 1e308},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := priceLocomo(tc.commits, tc.overhead, artificialAnalysisLocomoProfile()); err == nil {
+				t.Fatal("expected error")
+			}
+		})
 	}
 }
 
-func TestLocomoEstimateIterationFactorPopulated(t *testing.T) {
-	LocomoPresetName = "medium"
-	LocomoConfig = ""
-	LocomoInputPriceSet = false
-	LocomoOutputPriceSet = false
-	LocomoTPSSet = false
-	LocomoCyclesSet = false
-	LocomoTokensPerLine = 10
-	LocomoBaseInputPerLine = 20
-	LocomoComplexityWeight = 5
-	LocomoIterations = 1.5
-	LocomoIterationWeight = 2
-	LocomoReviewMinutesPerLine = 0.01
-
-	result := LocomoEstimate(1000, 100)
-
-	if result.IterationFactor <= 0 {
-		t.Error("Expected positive IterationFactor")
-	}
-	// density = 0.1, iFactor = 1.5 + sqrt(0.1)*2 ≈ 2.13
-	if result.IterationFactor < 2.0 || result.IterationFactor > 2.3 {
-		t.Errorf("Expected IterationFactor ~2.13, got %f", result.IterationFactor)
-	}
-}
-
-func TestLocomoCyclesOverride(t *testing.T) {
-	LocomoPresetName = "medium"
-	LocomoConfig = ""
-	LocomoInputPriceSet = false
-	LocomoOutputPriceSet = false
-	LocomoTPSSet = false
-	LocomoTokensPerLine = 10
-	LocomoBaseInputPerLine = 20
-	LocomoComplexityWeight = 5
-	LocomoIterations = 1.5
-	LocomoIterationWeight = 2
-	LocomoReviewMinutesPerLine = 0.01
-
-	// First get the default result
-	LocomoCyclesSet = false
-	defaultResult := LocomoEstimate(1000, 100)
-
-	// Now override with 100 cycles
-	LocomoCyclesSet = true
-	LocomoCyclesOverride = 100
-	overrideResult := LocomoEstimate(1000, 100)
-
-	// Reset
-	LocomoCyclesSet = false
-	LocomoCyclesOverride = 0
-
-	if overrideResult.IterationFactor != 100 {
-		t.Errorf("Expected IterationFactor 100, got %f", overrideResult.IterationFactor)
-	}
-	if overrideResult.Cost <= defaultResult.Cost {
-		t.Error("Expected override cost to be higher than default")
-	}
-	// Cost should scale roughly proportionally with cycles
-	ratio := overrideResult.Cost / defaultResult.Cost
-	if ratio < 30 || ratio > 70 {
-		t.Errorf("Cost ratio seems off: %f (expected ~47x for 100 vs ~2.13 cycles)", ratio)
-	}
-}
-
-func TestParseLocomoConfigPartialInvalid(t *testing.T) {
-	a, b, c, d, e := 10.0, 20.0, 5.0, 1.5, 2.0
-	parseLocomoConfig("8,15,bad,2.0,1.5", &a, &b, &c, &d, &e)
-
-	// Should remain unchanged since one part failed
-	if a != 10 || b != 20 || c != 5 || d != 1.5 || e != 2 {
-		t.Error("Partially invalid config should not change defaults")
+func TestRenderLocomoRejectsCSV(t *testing.T) {
+	saved := Format
+	Format = "csv"
+	t.Cleanup(func() { Format = saved })
+	if _, err := renderLocomo(locomoEstimate{}); err == nil || !strings.Contains(err.Error(), "supported: tabular, json") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

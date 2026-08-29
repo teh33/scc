@@ -66,7 +66,7 @@ func parseReportSkipTo(raw string, warnW io.Writer) {
 			continue
 		}
 		if !reportSkipRecognised[name] {
-			_, _ = fmt.Fprintf(warnW, "warning: --report-skip: unknown section %q (recognised: cocomo, locomo, hotspots, coupling, authors, timeline, files, uloc, linelength, card)\n", name)
+			_, _ = fmt.Fprintf(warnW, "warning: --report-skip: unknown section %q (recognised: cocomo, hotspots, coupling, authors, timeline, files, uloc, linelength, card)\n", name)
 		}
 		ReportSkipNames[name] = true
 	}

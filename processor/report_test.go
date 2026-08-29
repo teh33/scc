@@ -91,9 +91,6 @@ func TestCollectReportDataOnFixtureRepo(t *testing.T) {
 	if data.Cocomo == nil {
 		t.Errorf("expected Cocomo result, got nil")
 	}
-	if data.Locomo == nil {
-		t.Errorf("expected Locomo result, got nil")
-	}
 }
 
 // TestCollectReportDataOnNonGitDir verifies the git-less path: detect=false,
@@ -182,7 +179,6 @@ func TestCollectReportDataHonoursReportSkip(t *testing.T) {
 		"uloc":       true,
 		"linelength": true,
 		"cocomo":     true,
-		"locomo":     true,
 	}
 	t.Cleanup(func() { ReportSkipNames = prevSkip })
 
@@ -204,9 +200,6 @@ func TestCollectReportDataHonoursReportSkip(t *testing.T) {
 	}
 	if data.Cocomo != nil {
 		t.Errorf("expected Cocomo=nil under --report-skip cocomo, got %+v", data.Cocomo)
-	}
-	if data.Locomo != nil {
-		t.Errorf("expected Locomo=nil under --report-skip locomo, got %+v", data.Locomo)
 	}
 }
 
@@ -327,9 +320,9 @@ func TestParseReportSkipKnownNames(t *testing.T) {
 	withReportSkipReset(t)
 
 	var warn bytes.Buffer
-	parseReportSkipTo("Cocomo, Locomo, hotspots, AUTHORS, timeline, files, uloc, linelength, card", &warn)
+	parseReportSkipTo("Cocomo, hotspots, AUTHORS, timeline, files, uloc, linelength, card", &warn)
 
-	for _, name := range []string{"cocomo", "locomo", "hotspots", "authors", "timeline", "files", "uloc", "linelength", "card"} {
+	for _, name := range []string{"cocomo", "hotspots", "authors", "timeline", "files", "uloc", "linelength", "card"} {
 		if !ReportSkipped(name) {
 			t.Errorf("ReportSkipped(%q) = false, want true after parseReportSkip", name)
 		}
@@ -525,7 +518,7 @@ func TestReportImplicitlyEnablesULOCAndLineLength(t *testing.T) {
 // spec 05 enumerates as recognised so a future code change can't silently
 // add or drop one without updating the spec.
 func TestReportSkipRecognisedListMatchesSpec(t *testing.T) {
-	want := []string{"cocomo", "locomo", "hotspots", "coupling", "authors", "timeline", "files", "uloc", "linelength", "card"}
+	want := []string{"cocomo", "hotspots", "coupling", "authors", "timeline", "files", "uloc", "linelength", "card"}
 	if len(reportSkipRecognised) != len(want) {
 		t.Errorf("reportSkipRecognised size = %d, want %d", len(reportSkipRecognised), len(want))
 	}
@@ -816,11 +809,6 @@ func goldenReportFixture() ReportData {
 			ProjectType: "organic", SumCode: 10640,
 			EstimatedEffort: 26.4, EstimatedCost: 297500, ScheduleMonths: 8.4, PeopleRequired: 3.1,
 			AverageWage: 56286, Overhead: 2.4, EAF: 1.0, CurrencySymbol: "$",
-		},
-		Locomo: &LocomoResult{
-			InputTokens: 320000, OutputTokens: 96000, Cost: 18.25,
-			GenerationSeconds: 1800, ReviewHours: 12, AverageComplexityMult: 1.4,
-			IterationFactor: 1.2, Preset: "medium",
 		},
 		Files: []*FileJob{
 			{Location: "internal/server.go", Language: "Go", Lines: 3200, Code: 2600, Comment: 200, Blank: 400, Complexity: 240, Bytes: 96000, Uloc: 2200},

@@ -212,14 +212,23 @@ func TestRegisterFlagsExhaustive(t *testing.T) {
 		"trace", "verbose", "wide", "no-large", "include-symlinks", "large-line-count",
 		"large-byte-count", "count-as", "count-as-pattern", "format-multi",
 		"sql-project", "remap-unknown", "remap-all", "currency-symbol", "locomo",
-		"cost-comparison", "locomo-preset", "locomo-review", "locomo-config",
-		"locomo-input-price", "locomo-output-price", "locomo-tps", "locomo-cycles",
+		"locomo-agent", "locomo-cost-per-task", "locomo-model", "locomo-overhead",
 		"hotspots", "by-author", "depth", "timeline", "buckets", "no-fold-authors",
 		"mcp",
 	}
 	for _, name := range expected {
 		if fs.Lookup(name) == nil {
 			t.Errorf("registerFlags did not register --%s", name)
+		}
+	}
+
+	removed := []string{
+		"cost-comparison", "locomo-history", "locomo-preset", "locomo-review",
+		"locomo-config", "locomo-input-price", "locomo-output-price", "locomo-tps", "locomo-cycles",
+	}
+	for _, name := range removed {
+		if fs.Lookup(name) != nil {
+			t.Errorf("registerFlags still registers removed flag --%s", name)
 		}
 	}
 }
